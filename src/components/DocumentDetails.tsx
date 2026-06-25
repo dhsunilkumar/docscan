@@ -4,7 +4,7 @@ import Tesseract from 'tesseract.js';
 import { 
   ArrowLeft, Plus, Share2, FileText, FileDown, 
   Trash2, Edit3, CheckCircle2, AlertCircle, Copy, X,
-  ChevronRight, RotateCw
+  ChevronRight, RotateCw, Download
 } from 'lucide-react';
 import type { ScannedDocument, DocumentPage } from '../utils/storage';
 
@@ -373,6 +373,76 @@ export const DocumentDetails: React.FC<DocumentDetailsProps> = ({
     }
   };
 
+  // Download a single page image as JPG or PNG
+  const handleDownloadSinglePage = (page: DocumentPage, pageNum: number, format: 'jpeg' | 'png') => {
+    try {
+      showToast(`Downloading Page ${pageNum} as ${format.toUpperCase()}...`);
+      const img = new Image();
+      img.src = page.processedImage;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+          const fileExt = format === 'png' ? 'png' : 'jpg';
+          const quality = format === 'jpeg' ? 0.95 : undefined;
+          const dataUrl = canvas.toDataURL(mimeType, quality);
+          
+          const link = document.createElement('a');
+          link.href = dataUrl;
+          link.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}_page_${pageNum}.${fileExt}`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } else {
+          showToast('Failed to export page.');
+        }
+      };
+      img.onerror = () => {
+        showToast('Failed to load page image for export.');
+      };
+    } catch (err) {
+      console.error(err);
+      showToast('Export failed.');
+    }
+  };
+
+  // Export all pages as separate images in batch
+  const handleExportAllPages = (format: 'jpeg' | 'png') => {
+    if (doc.pages.length === 0) return;
+    showToast(`Exporting ${doc.pages.length} pages as ${format.toUpperCase()}...`);
+    
+    doc.pages.forEach((page, index) => {
+      setTimeout(() => {
+        const img = new Image();
+        img.src = page.processedImage;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+            const fileExt = format === 'png' ? 'png' : 'jpg';
+            const quality = format === 'jpeg' ? 0.95 : undefined;
+            const dataUrl = canvas.toDataURL(mimeType, quality);
+            
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}_page_${index + 1}.${fileExt}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        };
+      }, index * 250); // 250ms stagger to prevent browsers from blocking multiple automatic downloads
+    });
+  };
+
   // Share PDF file using Web Share API
   const handleSharePDF = async () => {
     try {
@@ -507,11 +577,11 @@ export const DocumentDetails: React.FC<DocumentDetailsProps> = ({
         )}
       </div>
 
-      {/* PDF Export Configurations */}
+      {/* PDF & Image Export Configurations */}
       {doc.pages.length > 0 && (
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          display: 'flex',
+          flexDirection: 'column',
           gap: '16px',
           padding: '16px',
           background: 'var(--bg-secondary)',
@@ -519,34 +589,76 @@ export const DocumentDetails: React.FC<DocumentDetailsProps> = ({
           border: '1px solid var(--border-color)',
           marginTop: '-8px'
         }}>
-          {/* PDF Page Format */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>PDF Page Format</span>
-            <select
-              value={pdfPageSize}
-              onChange={(e) => setPdfPageSize(e.target.value as any)}
-              className="input-field"
-              style={{ height: '38px', padding: '6px 12px' }}
-            >
-              <option value="A4">A4 (Standard - 210 x 297 mm)</option>
-              <option value="Letter">Letter (US - 216 x 279 mm)</option>
-              <option value="Fit">Fit to Image (Match original layout aspect ratio)</option>
-            </select>
+          {/* Row for PDF configurations */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+          }}>
+            {/* PDF Page Format */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>PDF Page Format</span>
+              <select
+                value={pdfPageSize}
+                onChange={(e) => setPdfPageSize(e.target.value as any)}
+                className="input-field"
+                style={{ height: '38px', padding: '6px 12px' }}
+              >
+                <option value="A4">A4 (Standard - 210 x 297 mm)</option>
+                <option value="Letter">Letter (US - 216 x 279 mm)</option>
+                <option value="Fit">Fit to Image (Match original layout aspect ratio)</option>
+              </select>
+            </div>
+
+            {/* PDF Image Quality */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>PDF Image Compression Quality</span>
+              <select
+                value={pdfQuality}
+                onChange={(e) => setPdfQuality(e.target.value as any)}
+                className="input-field"
+                style={{ height: '38px', padding: '6px 12px' }}
+              >
+                <option value="Medium">Medium (Recommended - Balanced file size)</option>
+                <option value="High">High (Best Quality - Larger file size)</option>
+                <option value="Low">Low (Compact File - Smallest file size)</option>
+              </select>
+            </div>
           </div>
 
-          {/* PDF Image Quality */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>PDF Image Compression Quality</span>
-            <select
-              value={pdfQuality}
-              onChange={(e) => setPdfQuality(e.target.value as any)}
-              className="input-field"
-              style={{ height: '38px', padding: '6px 12px' }}
-            >
-              <option value="Medium">Medium (Recommended - Balanced file size)</option>
-              <option value="High">High (Best Quality - Larger file size)</option>
-              <option value="Low">Low (Compact File - Smallest file size)</option>
-            </select>
+          {/* Image Export Section */}
+          <div style={{
+            borderTop: '1px solid var(--border-color)',
+            paddingTop: '12px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Download size={14} style={{ color: 'var(--primary)' }} />
+                <span>Export Pages as Images</span>
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Downloads all pages as separate image files in your chosen format</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => handleExportAllPages('jpeg')}
+                className="btn btn-secondary"
+                style={{ padding: '6px 12px', borderRadius: '10px', fontSize: '13px', border: '1px solid var(--border-color)' }}
+              >
+                Export All as JPG
+              </button>
+              <button
+                onClick={() => handleExportAllPages('png')}
+                className="btn btn-secondary"
+                style={{ padding: '6px 12px', borderRadius: '10px', fontSize: '13px', border: '1px solid var(--border-color)' }}
+              >
+                Export All as PNG
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -759,9 +871,29 @@ export const DocumentDetails: React.FC<DocumentDetailsProps> = ({
             <div className="ocr-layout" style={{ flex: 1, overflowY: 'auto' }}>
               {/* Left Panel: Image */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                  Page Preview
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                    Page Preview
+                  </span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button 
+                      onClick={() => handleDownloadSinglePage(editingPage, editingPageNum, 'jpeg')}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px 8px', fontSize: '11px', height: '26px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                      title="Download as JPG"
+                    >
+                      Download JPG
+                    </button>
+                    <button 
+                      onClick={() => handleDownloadSinglePage(editingPage, editingPageNum, 'png')}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px 8px', fontSize: '11px', height: '26px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                      title="Download as PNG"
+                    >
+                      Download PNG
+                    </button>
+                  </div>
+                </div>
                 <div style={{
                   background: '#09090d',
                   borderRadius: 'var(--border-radius-sm)',

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'docuscan-ocr-v3';
+const CACHE_NAME = 'docuscan-ocr-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

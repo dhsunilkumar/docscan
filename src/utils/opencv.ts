@@ -421,7 +421,7 @@ export function applyDocumentEnhancement(
       } else if (val > high) {
         data[i] = 255;
       } else {
-        data[i] = (val - low) * scale; // Automatically clamped and rounded by Uint8Array
+        data[i] = Math.round((val - low) * scale);
       }
     }
   };
@@ -444,10 +444,20 @@ export function applyDocumentEnhancement(
       let normalized = new cv.Mat();
       cv.divide(gray, bg, normalized, 255);
 
-      // 4. Apply Levels Adjustment in-place (solid black text, pure white background)
-      applyLevelsGrayscaleInPlace(normalized, 110, 190);
+      // 4. Apply high-pass sharpening to make text boundaries extremely crisp
+      let sharpened = new cv.Mat();
+      let kernel = cv.matFromArray(3, 3, cv.CV_32F, [
+         0, -1.2,  0,
+        -1.2,  5.8, -1.2,
+         0, -1.2,  0
+      ]);
+      cv.filter2D(normalized, sharpened, -1, kernel);
+      kernel.delete();
+
+      // 5. Apply Tight Levels Adjustment (pure black text, solid white background)
+      applyLevelsGrayscaleInPlace(sharpened, 130, 180);
       
-      normalized.copyTo(dst);
+      sharpened.copyTo(dst);
 
       // Convert back to RGBA for canvas rendering
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
@@ -457,6 +467,7 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalized.delete();
+      sharpened.delete();
     } else if (filterType === 'magic') {
       // 1. Convert to YCrCb to isolate luminance channel (Y)
       let ycrcb = new cv.Mat();
@@ -480,11 +491,21 @@ export function applyDocumentEnhancement(
       let normalizedY = new cv.Mat();
       cv.divide(yChan, bg, normalizedY, 255);
 
-      // 5. Apply Levels correction on Y channel in-place to clean background to pure white & darken color text
-      applyLevelsGrayscaleInPlace(normalizedY, 80, 210);
+      // 5. Sharpen Y channel to enhance fine text and colored lines
+      let sharpenedY = new cv.Mat();
+      let kernel = cv.matFromArray(3, 3, cv.CV_32F, [
+         0, -1.2,  0,
+        -1.2,  5.8, -1.2,
+         0, -1.2,  0
+      ]);
+      cv.filter2D(normalizedY, sharpenedY, -1, kernel);
+      kernel.delete();
+
+      // 6. Apply Levels correction on sharpened Y channel in-place
+      applyLevelsGrayscaleInPlace(sharpenedY, 110, 195);
 
       // Merge back channels
-      channels.set(0, normalizedY);
+      channels.set(0, sharpenedY);
       cv.merge(channels, ycrcb);
 
       // Convert back to RGBA
@@ -498,6 +519,7 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalizedY.delete();
+      sharpenedY.delete();
     } else if (filterType === 'grayscale') {
       // Grayscale shadow removal
       let gray = new cv.Mat();
@@ -513,10 +535,20 @@ export function applyDocumentEnhancement(
       let normalized = new cv.Mat();
       cv.divide(gray, bg, normalized, 255);
       
-      // Gentle contrast stretch on grayscale in-place
-      applyLevelsGrayscaleInPlace(normalized, 90, 220);
+      // Sharpen grayscale normalized image
+      let sharpened = new cv.Mat();
+      let kernel = cv.matFromArray(3, 3, cv.CV_32F, [
+         0, -1.2,  0,
+        -1.2,  5.8, -1.2,
+         0, -1.2,  0
+      ]);
+      cv.filter2D(normalized, sharpened, -1, kernel);
+      kernel.delete();
 
-      normalized.copyTo(dst);
+      // Gentle contrast stretch on grayscale in-place
+      applyLevelsGrayscaleInPlace(sharpened, 105, 205);
+
+      sharpened.copyTo(dst);
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
 
       gray.delete();
@@ -524,6 +556,7 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalized.delete();
+      sharpened.delete();
     }
 
     cv.imshow(canvas, dst);

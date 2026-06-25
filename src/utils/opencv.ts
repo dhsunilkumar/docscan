@@ -183,8 +183,8 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
     const ksize = new cv.Size(5, 5);
     cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
     
-    // 3. Canny edge detection
-    cv.Canny(blurred, edged, 75, 200, 3, false);
+    // 3. Canny edge detection (lower thresholds to capture low-contrast edges)
+    cv.Canny(blurred, edged, 30, 100, 3, false);
 
     // 4. Dilate Canny edges to connect tiny gaps
     const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
@@ -221,7 +221,7 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
       const periHull = cv.arcLength(hull, true);
       let approx = new cv.Mat();
 
-      for (let eps = 0.01; eps <= 0.08; eps += 0.01) {
+      for (let eps = 0; eps <= 0.08; eps += 0.01) {
         cv.approxPolyDP(hull, approx, eps * periHull, true);
         if (approx.rows === 4 && cv.isContourConvex(approx)) {
           approxPoints = [];
@@ -277,6 +277,99 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
       }
 
       contour.delete();
+    }
+
+    // Fallback: If Canny edge detection failed, try Adaptive Thresholding (highly effective for low-contrast document on light surface)
+    if (!approxPoints) {
+      let thresh = new cv.Mat();
+      cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+      
+      const dilateKernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      cv.dilate(thresh, thresh, dilateKernel);
+      dilateKernel.delete();
+
+      let threshContours = new cv.MatVector();
+      let threshHierarchy = new cv.Mat();
+      cv.findContours(thresh, threshContours, threshHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      const threshCandidates: { index: number; area: number }[] = [];
+      for (let i = 0; i < threshContours.size(); ++i) {
+        const contour = threshContours.get(i);
+        const area = cv.contourArea(contour);
+        if (area > minArea) {
+          threshCandidates.push({ index: i, area });
+        }
+        contour.delete();
+      }
+
+      threshCandidates.sort((a, b) => b.area - a.area);
+
+      for (const cand of threshCandidates) {
+        const contour = threshContours.get(cand.index);
+        let found = false;
+
+        let hull = new cv.Mat();
+        cv.convexHull(contour, hull, false, true);
+        const periHull = cv.arcLength(hull, true);
+        let approx = new cv.Mat();
+
+        for (let eps = 0; eps <= 0.08; eps += 0.01) {
+          cv.approxPolyDP(hull, approx, eps * periHull, true);
+          if (approx.rows === 4 && cv.isContourConvex(approx)) {
+            approxPoints = [];
+            for (let idx = 0; idx < 4; ++idx) {
+              approxPoints.push({
+                x: approx.data32S[idx * 2],
+                y: approx.data32S[idx * 2 + 1]
+              });
+            }
+            found = true;
+            break;
+          }
+        }
+
+        approx.delete();
+        hull.delete();
+
+        if (found) {
+          contour.delete();
+          break;
+        }
+
+        const periContour = cv.arcLength(contour, true);
+        approx = new cv.Mat();
+        for (let eps = 0; eps <= 0.08; eps += 0.01) {
+          cv.approxPolyDP(contour, approx, eps * periContour, true);
+          if (approx.rows === 4 && cv.isContourConvex(approx)) {
+            approxPoints = [];
+            for (let idx = 0; idx < 4; ++idx) {
+              approxPoints.push({
+                x: approx.data32S[idx * 2],
+                y: approx.data32S[idx * 2 + 1]
+              });
+            }
+            found = true;
+            break;
+          }
+        }
+        approx.delete();
+
+        if (found) {
+          contour.delete();
+          break;
+        }
+
+        if (!approxPoints && cand.index === threshCandidates[0].index) {
+          const rotatedRect = cv.minAreaRect(contour);
+          approxPoints = getRotatedRectPoints(rotatedRect);
+        }
+
+        contour.delete();
+      }
+
+      thresh.delete();
+      threshContours.delete();
+      threshHierarchy.delete();
     }
 
     // 6. Scale points back to the original canvas size
@@ -398,20 +491,26 @@ export function applyDocumentEnhancement(
       cv.dilate(gray, dilated, M);
       cv.medianBlur(dilated, bg, 21);
 
-      // 3. Divide to normalize illumination (removes shadows)
+      // 3. Divide to normalize illumination (removes paper shadows completely)
       let normalized = new cv.Mat();
       cv.divide(gray, bg, normalized, 255);
 
-      // 4. Adaptive thresholding for crisp black and white text
-      cv.adaptiveThreshold(
-        normalized,
-        dst,
-        255,
-        cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv.THRESH_BINARY,
-        15,
-        10
-      );
+      // 4. Levels Adjustment Look-Up Table (LUT) for smooth binarization
+      // This produces solid black text, pure white background, and anti-aliased smooth edges!
+      let lut = new cv.Mat(1, 256, cv.CV_8U);
+      const low = 110;
+      const high = 190;
+      for (let i = 0; i < 256; i++) {
+        if (i < low) {
+          lut.data[i] = 0;
+        } else if (i > high) {
+          lut.data[i] = 255;
+        } else {
+          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
+        }
+      }
+      
+      cv.LUT(normalized, lut, dst);
 
       // Convert back to RGBA for canvas rendering
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
@@ -421,6 +520,7 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalized.delete();
+      lut.delete();
     } else if (filterType === 'magic') {
       // 1. Convert to YCrCb to isolate luminance channel (Y)
       let ycrcb = new cv.Mat();
@@ -440,13 +540,25 @@ export function applyDocumentEnhancement(
       cv.dilate(yChan, dilated, M);
       cv.medianBlur(dilated, bg, 21);
 
-      // 4. Divide Y channel by background (shadow removal)
+      // 4. Divide Y channel by background (removes color document shadows)
       let normalizedY = new cv.Mat();
       cv.divide(yChan, bg, normalizedY, 255);
 
-      // 5. Gentle contrast stretch on Y channel to make it punchy
+      // 5. Apply Levels correction via LUT on Y channel to clean background to pure white & darken color text
       let enhancedY = new cv.Mat();
-      normalizedY.convertTo(enhancedY, -1, 1.15, 5); // scale = 1.15, shift = 5
+      let lut = new cv.Mat(1, 256, cv.CV_8U);
+      const low = 80;
+      const high = 210;
+      for (let i = 0; i < 256; i++) {
+        if (i < low) {
+          lut.data[i] = 0;
+        } else if (i > high) {
+          lut.data[i] = 255;
+        } else {
+          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
+        }
+      }
+      cv.LUT(normalizedY, lut, enhancedY);
 
       // Merge back channels
       channels.set(0, enhancedY);
@@ -464,6 +576,7 @@ export function applyDocumentEnhancement(
       M.delete();
       normalizedY.delete();
       enhancedY.delete();
+      lut.delete();
     } else if (filterType === 'grayscale') {
       // Grayscale shadow removal
       let gray = new cv.Mat();
@@ -476,13 +589,31 @@ export function applyDocumentEnhancement(
       cv.dilate(gray, dilated, M);
       cv.medianBlur(dilated, bg, 21);
 
-      cv.divide(gray, bg, dst, 255);
+      let normalized = new cv.Mat();
+      cv.divide(gray, bg, normalized, 255);
+      
+      // Gentle contrast stretch on grayscale using LUT
+      let lut = new cv.Mat(1, 256, cv.CV_8U);
+      const low = 90;
+      const high = 220;
+      for (let i = 0; i < 256; i++) {
+        if (i < low) {
+          lut.data[i] = 0;
+        } else if (i > high) {
+          lut.data[i] = 255;
+        } else {
+          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
+        }
+      }
+      cv.LUT(normalized, lut, dst);
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
 
       gray.delete();
       dilated.delete();
       bg.delete();
       M.delete();
+      normalized.delete();
+      lut.delete();
     }
 
     cv.imshow(canvas, dst);

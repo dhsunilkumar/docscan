@@ -409,6 +409,23 @@ export function applyDocumentEnhancement(
   let src = cv.imread(canvas);
   let dst = new cv.Mat();
 
+  // Helper to apply levels correction directly on a single-channel Mat data buffer (fast in-place TypedArray iteration)
+  const applyLevelsGrayscaleInPlace = (mat: any, low: number, high: number) => {
+    const data = mat.data;
+    const len = data.length;
+    const scale = 255 / (high - low);
+    for (let i = 0; i < len; i++) {
+      const val = data[i];
+      if (val < low) {
+        data[i] = 0;
+      } else if (val > high) {
+        data[i] = 255;
+      } else {
+        data[i] = (val - low) * scale; // Automatically clamped and rounded by Uint8Array
+      }
+    }
+  };
+
   try {
     if (filterType === 'bw') {
       // 1. Grayscale
@@ -427,22 +444,10 @@ export function applyDocumentEnhancement(
       let normalized = new cv.Mat();
       cv.divide(gray, bg, normalized, 255);
 
-      // 4. Levels Adjustment Look-Up Table (LUT) for smooth binarization
-      // This produces solid black text, pure white background, and anti-aliased smooth edges!
-      let lut = new cv.Mat(1, 256, cv.CV_8U);
-      const low = 110;
-      const high = 190;
-      for (let i = 0; i < 256; i++) {
-        if (i < low) {
-          lut.data[i] = 0;
-        } else if (i > high) {
-          lut.data[i] = 255;
-        } else {
-          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
-        }
-      }
+      // 4. Apply Levels Adjustment in-place (solid black text, pure white background)
+      applyLevelsGrayscaleInPlace(normalized, 110, 190);
       
-      cv.LUT(normalized, lut, dst);
+      normalized.copyTo(dst);
 
       // Convert back to RGBA for canvas rendering
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
@@ -452,7 +457,6 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalized.delete();
-      lut.delete();
     } else if (filterType === 'magic') {
       // 1. Convert to YCrCb to isolate luminance channel (Y)
       let ycrcb = new cv.Mat();
@@ -476,24 +480,11 @@ export function applyDocumentEnhancement(
       let normalizedY = new cv.Mat();
       cv.divide(yChan, bg, normalizedY, 255);
 
-      // 5. Apply Levels correction via LUT on Y channel to clean background to pure white & darken color text
-      let enhancedY = new cv.Mat();
-      let lut = new cv.Mat(1, 256, cv.CV_8U);
-      const low = 80;
-      const high = 210;
-      for (let i = 0; i < 256; i++) {
-        if (i < low) {
-          lut.data[i] = 0;
-        } else if (i > high) {
-          lut.data[i] = 255;
-        } else {
-          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
-        }
-      }
-      cv.LUT(normalizedY, lut, enhancedY);
+      // 5. Apply Levels correction on Y channel in-place to clean background to pure white & darken color text
+      applyLevelsGrayscaleInPlace(normalizedY, 80, 210);
 
       // Merge back channels
-      channels.set(0, enhancedY);
+      channels.set(0, normalizedY);
       cv.merge(channels, ycrcb);
 
       // Convert back to RGBA
@@ -507,8 +498,6 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalizedY.delete();
-      enhancedY.delete();
-      lut.delete();
     } else if (filterType === 'grayscale') {
       // Grayscale shadow removal
       let gray = new cv.Mat();
@@ -524,20 +513,10 @@ export function applyDocumentEnhancement(
       let normalized = new cv.Mat();
       cv.divide(gray, bg, normalized, 255);
       
-      // Gentle contrast stretch on grayscale using LUT
-      let lut = new cv.Mat(1, 256, cv.CV_8U);
-      const low = 90;
-      const high = 220;
-      for (let i = 0; i < 256; i++) {
-        if (i < low) {
-          lut.data[i] = 0;
-        } else if (i > high) {
-          lut.data[i] = 255;
-        } else {
-          lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
-        }
-      }
-      cv.LUT(normalized, lut, dst);
+      // Gentle contrast stretch on grayscale in-place
+      applyLevelsGrayscaleInPlace(normalized, 90, 220);
+
+      normalized.copyTo(dst);
       cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
 
       gray.delete();
@@ -545,7 +524,6 @@ export function applyDocumentEnhancement(
       bg.delete();
       M.delete();
       normalized.delete();
-      lut.delete();
     }
 
     cv.imshow(canvas, dst);

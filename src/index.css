@@ -229,7 +229,11 @@ body {
   border-radius: var(--border-radius);
   overflow: hidden;
   background: #000;
-  aspect-ratio: 3 / 4;
+  width: 100%;
+  max-width: 450px;
+  margin: 0 auto;
+  aspect-ratio: 9 / 16;
+  max-height: 68vh;
   box-shadow: var(--shadow-lg);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }

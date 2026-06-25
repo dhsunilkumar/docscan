@@ -349,7 +349,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onCapture }) => {
 
       {isCameraActive && (
         <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
-          Align the document boundaries inside the center frame and press capture
+          Position the document in the frame and press capture (edges are auto-detected)
         </div>
       )}
     </div>

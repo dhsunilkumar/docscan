@@ -277,40 +277,43 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onCapture }) => {
   return (
     <div className="animate-fade" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="scanner-container">
-        {isCameraActive ? (
-          <>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              onLoadedMetadata={() => {
-                videoRef.current?.play().catch((e) => console.error('Video play error on metadata load:', e));
-              }}
-              className="camera-preview"
-            />
-            <div className="scanner-overlay">
-              <div className="scanner-guides"></div>
-              
-              <div className="scanner-controls">
-                {/* Flip camera */}
-                {hasMultipleCameras && (
-                  <button onClick={toggleCamera} className="btn btn-secondary btn-icon-only" title="Switch Camera">
-                    <RotateCw size={20} />
-                  </button>
-                )}
-                
-                {/* Shutter button */}
-                <button onClick={captureFrame} className="shutter-btn" title="Capture Document"></button>
-                
-                {/* Gallery selector icon */}
-                <button onClick={() => fileInputRef.current?.click()} className="btn btn-secondary btn-icon-only" title="Import from Gallery">
-                  <ImageIcon size={20} />
+        {/* Always keep video element mounted to ensure videoRef is never null during async startCamera */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={() => {
+            videoRef.current?.play().catch((e) => console.error('Video play error on metadata load:', e));
+          }}
+          className="camera-preview"
+          style={{ display: isCameraActive ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+
+        {isCameraActive && (
+          <div className="scanner-overlay">
+            <div className="scanner-guides"></div>
+            
+            <div className="scanner-controls">
+              {/* Flip camera */}
+              {hasMultipleCameras && (
+                <button onClick={toggleCamera} className="btn btn-secondary btn-icon-only" title="Switch Camera">
+                  <RotateCw size={20} />
                 </button>
-              </div>
+              )}
+              
+              {/* Shutter button */}
+              <button onClick={captureFrame} className="shutter-btn" title="Capture Document"></button>
+              
+              {/* Gallery selector icon */}
+              <button onClick={() => fileInputRef.current?.click()} className="btn btn-secondary btn-icon-only" title="Import from Gallery">
+                <ImageIcon size={20} />
+              </button>
             </div>
-          </>
-        ) : (
+          </div>
+        )}
+
+        {!isCameraActive && (
           <div style={{
             height: '100%',
             display: 'flex',

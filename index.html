@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en" translate="no" class="notranslate">
+
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#09090e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="manifest.json" />
+    <script>
+      window.__errors = [];
+      
+      window.showFallbackError = function(message, type) {
+        var list = document.getElementById('debug-errors-list');
+        var panel = document.getElementById('debug-log-panel');
+        if (list && panel) {
+          panel.style.display = 'block';
+          var item = document.createElement('div');
+          item.style.padding = '4px 8px';
+          item.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+          item.style.fontSize = '11px';
+          
+          if (type === 'error') {
+            item.style.color = '#ef4444';
+            item.style.borderLeft = '3px solid #ef4444';
+          } else if (type === 'warn') {
+            item.style.color = '#f59e0b';
+            item.style.borderLeft = '3px solid #f59e0b';
+          } else {
+            item.style.color = '#10b981';
+            item.style.borderLeft = '3px solid #10b981';
+          }
+          
+          item.innerHTML = '[' + new Date().toLocaleTimeString() + '] ' + message;
+          list.appendChild(item);
+          panel.scrollTop = panel.scrollHeight; // Auto scroll to bottom
+        }
+      };
+
+      window.addEventListener('error', function(e) {
+        window.showFallbackError(e.message + ' (' + e.filename + ':' + e.lineno + ')', 'error');
+      });
+      
+      window.addEventListener('unhandledrejection', function(e) {
+        var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled promise rejection';
+        window.showFallbackError('Promise Rejection: ' + msg, 'error');
+      });
+
+      // Intercept console.log
+      var origLog = console.log;
+      console.log = function() {
+        var msg = Array.prototype.slice.call(arguments).join(' ');
+        window.showFallbackError(msg, 'log');
+        origLog.apply(console, arguments);
+      };
+
+      // Intercept console.error
+      var origError = console.error;
+      console.error = function() {
+        var msg = Array.prototype.slice.call(arguments).join(' ');
+        window.showFallbackError(msg, 'error');
+        origError.apply(console, arguments);
+      };
+
+      // Intercept console.warn
+      var origWarn = console.warn;
+      console.warn = function() {
+        var msg = Array.prototype.slice.call(arguments).join(' ');
+        window.showFallbackError(msg, 'warn');
+        origWarn.apply(console, arguments);
+      };
+
+      // Register Service Worker for offline PWA support
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('sw.js').then(function(reg) {
+            console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
+          }).catch(function(err) {
+            console.error('[PWA] ServiceWorker registration failed:', err);
+          });
+        });
+      }
+    </script>
+    <title>DocuScan OCR - Document Scanner</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="debug-log-panel" style="display:none; position:fixed; bottom:0; left:0; width:100%; height:180px; background:rgba(9,9,14,0.96); border-top:2px solid rgba(255,255,255,0.15); overflow-y:auto; font-family:monospace; font-size:11px; z-index:10000; padding:12px; color:#fff; box-sizing:border-box; border-radius:12px 12px 0 0; box-shadow:0 -10px 30px rgba(0,0,0,0.8);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:4px;">
+        <span style="color:#3a86ff; font-weight:bold; font-family: sans-serif;">LIVE CONSOLE LOGS (DIAGNOSTICS)</span>
+        <button onclick="document.getElementById('debug-log-panel').style.display='none'" style="background:rgba(255,255,255,0.1); border:none; color:#fff; padding:2px 8px; border-radius:4px; cursor:pointer; font-size:10px;">Hide Logs</button>
+      </div>
+      <div id="debug-errors-list" style="display:flex; flex-direction:column; gap:4px;"></div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+

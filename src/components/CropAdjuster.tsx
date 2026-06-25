@@ -245,12 +245,12 @@ export const CropAdjuster: React.FC<CropAdjusterProps> = ({
   };
 
   return (
-    <div className="glass-panel animate-fade" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600 }}>
+    <div className="glass-panel animate-fade" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '18px', fontWeight: 600, marginBottom: '2px' }}>
         Adjust Document Corners
       </h3>
 
-      <div ref={containerRef} className="crop-container">
+      <div ref={containerRef} className="crop-container" style={{ position: 'relative', width: 'fit-content', margin: '0 auto', borderRadius: 'var(--border-radius-sm)', overflow: 'hidden', touchAction: 'none' }}>
         {/* Underlay Image */}
         <img
           ref={imageRef}
@@ -258,7 +258,7 @@ export const CropAdjuster: React.FC<CropAdjusterProps> = ({
           onLoad={handleImageLoad}
           alt="Original frame"
           className="crop-image"
-          style={{ display: 'block', width: '100%', height: 'auto', userSelect: 'none' }}
+          style={{ display: 'block', maxWidth: '100%', maxHeight: '52vh', objectFit: 'contain', userSelect: 'none' }}
         />
 
         {/* Overlay Canvas for Lines */}

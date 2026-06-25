@@ -216,14 +216,7 @@ function App() {
               )}
             </div>
             
-            <div style={{ textAlign: 'center', margin: '5px 0' }}>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '26px' }}>
-                Scan a Document
-              </h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                Take a photo or import an image to extract high-quality scans.
-              </p>
-            </div>
+
             <CameraScanner onCapture={handleCapture} />
           </div>
         )}

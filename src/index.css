@@ -610,3 +610,19 @@ body {
   font-weight: 500;
   animation: fadeIn 0.2s ease-out;
 }
+
+/* Mobile optimizations to avoid vertical scrolling in scanner & crop adjusters */
+@media (max-width: 600px) {
+  .glass-panel {
+    padding: 14px !important;
+  }
+  .app-container {
+    padding-top: 8px !important;
+    padding-bottom: 12px !important;
+    gap: 12px !important;
+  }
+  .app-header {
+    height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+  }
+}
+

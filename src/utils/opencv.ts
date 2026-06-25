@@ -173,32 +173,18 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
   let src = cv.imread(detectCanvas);
   let gray = new cv.Mat();
   let blurred = new cv.Mat();
-  let edged = new cv.Mat();
-  let contours = new cv.MatVector();
-  let hierarchy = new cv.Mat();
 
-  try {
-    // 2. Grayscale & Blur
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    const ksize = new cv.Size(5, 5);
-    cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
-    
-    // 3. Canny edge detection (lower thresholds to capture low-contrast edges)
-    cv.Canny(blurred, edged, 30, 100, 3, false);
+  // Helper to extract a 4-point quad from a binary mask
+  const findQuadFromMask = (mask: any): Point[] | null => {
+    let tempContours = new cv.MatVector();
+    let tempHierarchy = new cv.Mat();
+    cv.findContours(mask, tempContours, tempHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    // 4. Dilate Canny edges to connect tiny gaps
-    const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-    cv.dilate(edged, edged, kernel);
-    kernel.delete();
-
-    // 5. Find extreme outer contours
-    cv.findContours(edged, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    const minArea = targetW * targetH * 0.1; // Filter out contours smaller than 10% of canvas area
+    const minArea = targetW * targetH * 0.08; // Document should span at least 8% of the viewport
     const candidates: { index: number; area: number }[] = [];
 
-    for (let i = 0; i < contours.size(); ++i) {
-      const contour = contours.get(i);
+    for (let i = 0; i < tempContours.size(); ++i) {
+      const contour = tempContours.get(i);
       const area = cv.contourArea(contour);
       if (area > minArea) {
         candidates.push({ index: i, area });
@@ -206,13 +192,12 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
       contour.delete();
     }
 
-    // Sort candidates by area descending
     candidates.sort((a, b) => b.area - a.area);
 
-    let approxPoints: Point[] | null = null;
+    let pts: Point[] | null = null;
 
     for (const cand of candidates) {
-      const contour = contours.get(cand.index);
+      const contour = tempContours.get(cand.index);
       let found = false;
 
       // Strategy A: Convex Hull + Dynamic Epsilon Sweep
@@ -221,12 +206,12 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
       const periHull = cv.arcLength(hull, true);
       let approx = new cv.Mat();
 
-      for (let eps = 0; eps <= 0.08; eps += 0.01) {
+      for (let eps = 0.01; eps <= 0.08; eps += 0.01) {
         cv.approxPolyDP(hull, approx, eps * periHull, true);
         if (approx.rows === 4 && cv.isContourConvex(approx)) {
-          approxPoints = [];
+          pts = [];
           for (let idx = 0; idx < 4; ++idx) {
-            approxPoints.push({
+            pts.push({
               x: approx.data32S[idx * 2],
               y: approx.data32S[idx * 2 + 1]
             });
@@ -244,16 +229,15 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
         break;
       }
 
-      // Strategy B: Raw Contour + Dynamic Epsilon Sweep (if hull fails)
+      // Strategy B: Raw Contour + Dynamic Epsilon Sweep
       const periContour = cv.arcLength(contour, true);
       approx = new cv.Mat();
-
-      for (let eps = 0; eps <= 0.08; eps += 0.01) {
+      for (let eps = 0.01; eps <= 0.08; eps += 0.01) {
         cv.approxPolyDP(contour, approx, eps * periContour, true);
         if (approx.rows === 4 && cv.isContourConvex(approx)) {
-          approxPoints = [];
+          pts = [];
           for (let idx = 0; idx < 4; ++idx) {
-            approxPoints.push({
+            pts.push({
               x: approx.data32S[idx * 2],
               y: approx.data32S[idx * 2 + 1]
             });
@@ -262,7 +246,6 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
           break;
         }
       }
-
       approx.delete();
 
       if (found) {
@@ -270,106 +253,58 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
         break;
       }
 
-      // Strategy C: Bounding Box Fallback (only for the largest candidate contour)
-      if (!approxPoints && cand.index === candidates[0].index) {
+      // Strategy C: Bounding Box Fallback (only on the largest candidate)
+      if (cand.index === candidates[0].index) {
         const rotatedRect = cv.minAreaRect(contour);
-        approxPoints = getRotatedRectPoints(rotatedRect);
+        pts = getRotatedRectPoints(rotatedRect);
       }
 
       contour.delete();
     }
 
-    // Fallback: If Canny edge detection failed, try Adaptive Thresholding (highly effective for low-contrast document on light surface)
+    tempContours.delete();
+    tempHierarchy.delete();
+    return pts;
+  };
+
+  try {
+    // 2. Convert to Grayscale & Blur
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    const ksize = new cv.Size(5, 5);
+    cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
+
+    let approxPoints: Point[] | null = null;
+
+    // Tier 1: Otsu Thresholding (Highly effective for solid light sheets on dark/wood tables)
+    let binary = new cv.Mat();
+    cv.threshold(blurred, binary, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    approxPoints = findQuadFromMask(binary);
+    binary.delete();
+
+    // Tier 2: Adaptive Thresholding Fallback (Highly effective for low-contrast white sheets on light/white tables)
     if (!approxPoints) {
-      let thresh = new cv.Mat();
-      cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+      let adaptive = new cv.Mat();
+      cv.adaptiveThreshold(gray, adaptive, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
       
       const dilateKernel = cv.Mat.ones(3, 3, cv.CV_8U);
-      cv.dilate(thresh, thresh, dilateKernel);
+      cv.dilate(adaptive, adaptive, dilateKernel);
       dilateKernel.delete();
 
-      let threshContours = new cv.MatVector();
-      let threshHierarchy = new cv.Mat();
-      cv.findContours(thresh, threshContours, threshHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      approxPoints = findQuadFromMask(adaptive);
+      adaptive.delete();
+    }
 
-      const threshCandidates: { index: number; area: number }[] = [];
-      for (let i = 0; i < threshContours.size(); ++i) {
-        const contour = threshContours.get(i);
-        const area = cv.contourArea(contour);
-        if (area > minArea) {
-          threshCandidates.push({ index: i, area });
-        }
-        contour.delete();
-      }
+    // Tier 3: Canny Edge Detection Fallback (For structured boundaries with heavy shadows/textures)
+    if (!approxPoints) {
+      let edged = new cv.Mat();
+      cv.Canny(blurred, edged, 30, 100, 3, false);
 
-      threshCandidates.sort((a, b) => b.area - a.area);
+      const dilateKernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      cv.dilate(edged, edged, dilateKernel);
+      dilateKernel.delete();
 
-      for (const cand of threshCandidates) {
-        const contour = threshContours.get(cand.index);
-        let found = false;
-
-        let hull = new cv.Mat();
-        cv.convexHull(contour, hull, false, true);
-        const periHull = cv.arcLength(hull, true);
-        let approx = new cv.Mat();
-
-        for (let eps = 0; eps <= 0.08; eps += 0.01) {
-          cv.approxPolyDP(hull, approx, eps * periHull, true);
-          if (approx.rows === 4 && cv.isContourConvex(approx)) {
-            approxPoints = [];
-            for (let idx = 0; idx < 4; ++idx) {
-              approxPoints.push({
-                x: approx.data32S[idx * 2],
-                y: approx.data32S[idx * 2 + 1]
-              });
-            }
-            found = true;
-            break;
-          }
-        }
-
-        approx.delete();
-        hull.delete();
-
-        if (found) {
-          contour.delete();
-          break;
-        }
-
-        const periContour = cv.arcLength(contour, true);
-        approx = new cv.Mat();
-        for (let eps = 0; eps <= 0.08; eps += 0.01) {
-          cv.approxPolyDP(contour, approx, eps * periContour, true);
-          if (approx.rows === 4 && cv.isContourConvex(approx)) {
-            approxPoints = [];
-            for (let idx = 0; idx < 4; ++idx) {
-              approxPoints.push({
-                x: approx.data32S[idx * 2],
-                y: approx.data32S[idx * 2 + 1]
-              });
-            }
-            found = true;
-            break;
-          }
-        }
-        approx.delete();
-
-        if (found) {
-          contour.delete();
-          break;
-        }
-
-        if (!approxPoints && cand.index === threshCandidates[0].index) {
-          const rotatedRect = cv.minAreaRect(contour);
-          approxPoints = getRotatedRectPoints(rotatedRect);
-        }
-
-        contour.delete();
-      }
-
-      thresh.delete();
-      threshContours.delete();
-      threshHierarchy.delete();
+      approxPoints = findQuadFromMask(edged);
+      edged.delete();
     }
 
     // 6. Scale points back to the original canvas size
@@ -388,9 +323,6 @@ export function findDocumentCorners(canvas: HTMLCanvasElement): Point[] {
     src.delete();
     gray.delete();
     blurred.delete();
-    edged.delete();
-    contours.delete();
-    hierarchy.delete();
   }
 
   return defaultPoints;

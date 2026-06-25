@@ -40,6 +40,10 @@
       };
 
       window.addEventListener('error', function(e) {
+        // Ignore generic cross-origin Script errors caused by browser extensions or Safari sharing menu injection
+        if (e.message === 'Script error.' || !e.filename) {
+          return;
+        }
         window.showFallbackError(e.message + ' (' + e.filename + ':' + e.lineno + ')', 'error');
       });
       

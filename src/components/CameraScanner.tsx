@@ -202,6 +202,9 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onCapture }) => {
         setIsCameraActive(true);
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
+          videoRef.current.play().catch((playErr) => {
+            console.warn('Auto-play failed in startCamera, relying on onLoadedMetadata:', playErr);
+          });
         }
       } catch (err: any) {
         console.error('Camera access error in startCamera:', err);
@@ -280,6 +283,10 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onCapture }) => {
               ref={videoRef}
               autoPlay
               playsInline
+              muted
+              onLoadedMetadata={() => {
+                videoRef.current?.play().catch((e) => console.error('Video play error on metadata load:', e));
+              }}
               className="camera-preview"
             />
             <div className="scanner-overlay">

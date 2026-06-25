@@ -2,7 +2,7 @@
   "name": "DocuScan OCR - Document Scanner",
   "short_name": "DocuScan",
   "description": "Scan documents, adjust crop perspective, apply filters, and run client-side OCR on-device.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#09090e",
   "theme_color": "#09090e",
